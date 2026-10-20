@@ -44,7 +44,7 @@ function resize_grid(rhdf_h5_path,Nx1,Nx2,Nx3;method="linear")
         Nx1, Nx2, Nx3: New resolution
 
         method: {
-                Linear = linear interpolation
+                linear = linear interpolation
                 NN = Nearest Neighbor
                     }
     """
@@ -293,11 +293,20 @@ function div_cleanup(x1_centers, x2_centers, x3_centers, fB, BC)
     dx2 = kF.hF.get_dx(x2_centers)
     dx3 = kF.hF.get_dx(x3_centers)
     phi, residual, residual_norm, history = kF.solve_phi(fB,dx1, dx2, dx3, BC)
-    Bprime = fB - kF.gradient(phi, dx1, dx2, dx3, BC)
     
-    divbprime = kF.kharma_face_div(Bprime, dx1, dx2, dx3)
+    # correct x2 boundarys for transmitting
+    Nx1, Nx2, Nx3 = size(phi)
+    grad_phi = kF.gradient(phi, dx1, dx2, dx3, BC)
+    grad_phi[1:Nx1, 1,      1:Nx3, 2] .= fB[1:Nx1, 1,      1:Nx3, 2]
+    grad_phi[1:Nx1, Nx2+1, 1:Nx3, 2] .= fB[1:Nx1, Nx2+1, 1:Nx3, 2]
+
+    Bprime = fB .- grad_phi
+    # Bprime = fB - kF.gradient(phi, dx1, dx2, dx3, BC)
+    print("After Cleaning ∇⋅B|")
+    kF.report_max_divB(Bprime,dx1, dx2, dx3,0)
+    # divbprime = kF.kharma_face_div(Bprime, dx1, dx2, dx3)
     
-    print("Max Divergence of cleaned Div B: ",maximum(abs.(divbprime)))
+    # print("Max Divergence of cleaned Div B: ",maximum(abs.(divbprime)))
 
     
     return Bprime
@@ -424,21 +433,50 @@ function write_rhdf(
     cons_rho  = kF.hF.pad_array(cons_rho;Nx1_bc=BC[1],Nx2_bc=BC[2],Nx3_bc=BC[3],NGhost=NGhost)  
     cons_u    = kF.hF.pad_array(cons_u;Nx1_bc=BC[1],Nx2_bc=BC[2],Nx3_bc=BC[3],NGhost=NGhost)  
 
+    prim_uvec1 = kF.hF.pad_array(prim_uvec[:,:,:,1];Nx1_bc=BC[1],Nx2_bc=BC[2],Nx3_bc=BC[3],NGhost=NGhost)        
+    prim_uvec2 = kF.hF.pad_array(prim_uvec[:,:,:,2];Nx1_bc=BC[1],Nx2_bc=BC[2],Nx3_bc=BC[3],NGhost=NGhost,transmit_sign=-1)        
+    prim_uvec3 = kF.hF.pad_array(prim_uvec[:,:,:,3];Nx1_bc=BC[1],Nx2_bc=BC[2],Nx3_bc=BC[3],NGhost=NGhost,transmit_sign=-1)        
+    prim_uvec = cat(prim_uvec1,prim_uvec2,prim_uvec3, dims=4)
 
     cons_uvec1 = kF.hF.pad_array(cons_uvec[:,:,:,1];Nx1_bc=BC[1],Nx2_bc=BC[2],Nx3_bc=BC[3],NGhost=NGhost)
-    cons_uvec2 = kF.hF.pad_array(cons_uvec[:,:,:,2];Nx1_bc=BC[1],Nx2_bc=BC[2],Nx3_bc=BC[3],NGhost=NGhost)
-    cons_uvec3 = kF.hF.pad_array(cons_uvec[:,:,:,3];Nx1_bc=BC[1],Nx2_bc=BC[2],Nx3_bc=BC[3],NGhost=NGhost)
+    cons_uvec2 = kF.hF.pad_array(cons_uvec[:,:,:,2];Nx1_bc=BC[1],Nx2_bc=BC[2],Nx3_bc=BC[3],NGhost=NGhost,transmit_sign=-1)
+    cons_uvec3 = kF.hF.pad_array(cons_uvec[:,:,:,3];Nx1_bc=BC[1],Nx2_bc=BC[2],Nx3_bc=BC[3],NGhost=NGhost,transmit_sign=-1)
     cons_uvec = cat(cons_uvec1,cons_uvec2,cons_uvec3, dims=4)
+    
+    # Pad face array
+    print("Before NGhosts: ")
+    kF.report_max_divB(cons_fb,dx1, dx2, dx3,0)
 
-    prim_uvec1 = kF.hF.pad_array(prim_uvec[:,:,:,1];Nx1_bc=BC[1],Nx2_bc=BC[2],Nx3_bc=BC[3],NGhost=NGhost)        
-    prim_uvec2 = kF.hF.pad_array(prim_uvec[:,:,:,2];Nx1_bc=BC[1],Nx2_bc=BC[2],Nx3_bc=BC[3],NGhost=NGhost)        
-    prim_uvec3 = kF.hF.pad_array(prim_uvec[:,:,:,3];Nx1_bc=BC[1],Nx2_bc=BC[2],Nx3_bc=BC[3],NGhost=NGhost)        
-    prim_uvec = cat(prim_uvec1,prim_uvec2,prim_uvec3, dims=4)
-       
-    cons_fb1 = kF.hF.pad_array(cons_fb[:,:,:,1];Nx1_bc=BC[1],Nx2_bc=BC[2],Nx3_bc=BC[3],NGhost=NGhost)
-    cons_fb2 = kF.hF.pad_array(cons_fb[:,:,:,2];Nx1_bc=BC[1],Nx2_bc=BC[2],Nx3_bc=BC[3],NGhost=NGhost)
-    cons_fb3 = kF.hF.pad_array(cons_fb[:,:,:,3];Nx1_bc=BC[1],Nx2_bc=BC[2],Nx3_bc=BC[3],NGhost=NGhost)
-    cons_fb = cat(cons_fb1,cons_fb2,cons_fb3, dims=4)
+    
+
+    cons_fb1 = cons_fb[1:Nx1 + 1, 1:Nx2, 1:Nx3, 1]
+    cons_fb2 = cons_fb[1:Nx1, 1:Nx2 + 1, 1:Nx3, 2]
+    cons_fb3 = cons_fb[1:Nx1, 1:Nx2, 1:Nx3 + 1, 3]
+    @show maximum(abs, cons_fb2[:, 1, :])
+    @show maximum(abs, cons_fb2[:, end, :])
+    cons_fb1, cons_fb2, cons_fb3 = kF.hF.pad_face_array(
+        cons_fb1, cons_fb2, cons_fb3;
+        Nx1_bc=BC[1],Nx2_bc=BC[2],Nx3_bc=BC[3],
+        NGhost=NGhost,
+    )
+    println("Padding occured...")
+    jlo = NGhost + 1
+    jhi = size(cons_fb2, 2) - NGhost
+
+    @show maximum(abs, cons_fb2[:, jlo, :])
+    @show maximum(abs, cons_fb2[:, jhi, :])
+    Nx1_face_padded = Nx1+2*NGhost
+    Nx2_face_padded = Nx2+2*NGhost
+    Nx3_face_padded = Nx3+2*NGhost
+
+    
+    cons_fb = zeros(Float64,Nx1_face_padded+1,Nx2_face_padded+1,Nx3_face_padded+1,3)
+    cons_fb[1:Nx1_face_padded + 1, 1:Nx2_face_padded, 1:Nx3_face_padded, 1] .= cons_fb1 
+    cons_fb[1:Nx1_face_padded, 1:Nx2_face_padded + 1, 1:Nx3_face_padded, 2] .= cons_fb2 
+    cons_fb[1:Nx1_face_padded, 1:Nx2_face_padded, 1:Nx3_face_padded + 1, 3] .= cons_fb3
+    print("After NGhosts: ")
+    kF.report_max_divB(cons_fb,dx1, dx2, dx3,NGhost)
+
     
     # --------------------------------------------
     # --------------------------------------------
@@ -561,6 +599,8 @@ function write_rhdf(
     # --------------------------------------------
     # cons.fB
     fb_shape = size(cons_fb)
+    print("Before Add: ")
+    kF.report_max_divB(cons_fb,dx1, dx2, dx3,NGhost)
     cons_fb = reshape(cons_fb,fb_shape[1],fb_shape[2],fb_shape[3],fb_shape[4],1)
     resized_rhdf["cons.fB"] = cons_fb
 
@@ -568,8 +608,8 @@ function write_rhdf(
     # --------------------------------------------
     # cons.rho, cons.u,cons.uvec
     cons_rho  =reshape(cons_rho, size(cons_rho,1),size(cons_rho,2),size(cons_rho,3),1)
-    cons_u    =reshape(cons_rho, size(cons_rho,1),size(cons_rho,2),size(cons_rho,3),1)
-    cons_uvec =reshape(cons_rho, size(cons_rho,1),size(cons_rho,2),size(cons_rho,3),1)
+    cons_u    =reshape(cons_u, size(cons_u,1),size(cons_u,2),size(cons_u,3),1)
+    cons_uvec =reshape(cons_uvec , size(cons_uvec ,1),size(cons_uvec ,2),size(cons_uvec,3),size(cons_uvec,4),1)
 
     resized_rhdf["cons.rho"] = cons_rho
     resized_rhdf["cons.u"] = cons_u

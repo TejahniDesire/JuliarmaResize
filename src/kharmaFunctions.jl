@@ -204,6 +204,15 @@ function kharma_face_div(fB, dx1, dx2, dx3)
     return divB
 end
 
+function report_max_divB(cons_fB,dx1, dx2, dx3,NGhost)
+    println("max(∇⋅B): ",
+        maximum(abs.(
+            kharma_face_div(get_real_cells_vector(cons_fB ,NGhost), dx1, dx2, dx3)
+            ))
+    )
+
+end
+
 
 function face_grad(P, direction, i, j, k, dx1, dx2, dx3)
     """
@@ -319,15 +328,69 @@ end
 
 
 # TODO: The below function is chatgpt. Confirm this is valid
-function solve_phi(fB, dx1, dx2, dx3, BC; tol=1e-10, maxiter=10_000)
+# function solve_phi(fB, dx1, dx2, dx3, BC; reltol=1e-10,abstol=1e-12, maxiter=10_000)
+#     divB = kharma_face_div(fB, dx1, dx2, dx3)
+#     dims = size(divB)
+#     n = length(divB)
+#     T = promote_type(eltype(divB), Float64)
+
+#     function apply_neg_laplacian!(y, x)
+#         phi = reshape(x, dims)
+#         y .= -vec(laplacien(phi, dx1, dx2, dx3, BC))
+#         return y
+#     end
+
+#     A = LinearMaps.LinearMap{T}(
+#         apply_neg_laplacian!, n, n;
+#         ismutating=true,
+#         issymmetric=true,
+#         ishermitian=true,
+#     )
+
+#     rhs = -T.(vec(divB))
+#     println("Solving for ϕ in ∇⋅B=∇²ϕ...")
+#     phi_vec, history = IterativeSolvers.cg(
+#     A, rhs;
+#     reltol=reltol,
+#     abstol=abstol,
+#     maxiter=maxiter,
+#     log=true,
+#     )
+#     println("ϕ found.")
+
+#     phi = reshape(phi_vec, dims)
+#     residual = laplacien(phi, dx1, dx2, dx3, BC) .- divB
+#     residual_norm = LinearAlgebra.norm(residual)
+
+#     println("Final Residual Norm: ", residual_norm)
+
+#     return phi, residual, residual_norm, history
+# end
+function solve_phi(fB, dx1, dx2, dx3, BC;
+                   reltol=1e-10, abstol=1e-12, maxiter=10_000)
+
     divB = kharma_face_div(fB, dx1, dx2, dx3)
+    Nx1, Nx2, Nx3 = size(divB)
     dims = size(divB)
     n = length(divB)
     T = promote_type(eltype(divB), Float64)
 
+    # Divergence contribution from prescribing grad(phi) = fB
+    # on the lower and upper x2 boundary faces.
+    div_boundary = zeros(T, dims)
+    div_boundary[:, 1, :] .-= fB[1:Nx1, 1,      1:Nx3, 2] ./ dx2
+    div_boundary[:, end, :] .+= fB[1:Nx1, Nx2+1, 1:Nx3, 2] ./ dx2
+
     function apply_neg_laplacian!(y, x)
         phi = reshape(x, dims)
-        y .= -vec(laplacien(phi, dx1, dx2, dx3, BC))
+        grad_phi = gradient(phi, dx1, dx2, dx3, BC)
+
+        # Homogeneous boundary condition for the linear CG operator.
+        # Only these valid x2 face locations contribute to face_div.
+        grad_phi[1:Nx1, 1,      1:Nx3, 2] .= 0
+        grad_phi[1:Nx1, Nx2+1, 1:Nx3, 2] .= 0
+
+        y .= -vec(kharma_face_div(grad_phi, dx1, dx2, dx3))
         return y
     end
 
@@ -338,23 +401,29 @@ function solve_phi(fB, dx1, dx2, dx3, BC; tol=1e-10, maxiter=10_000)
         ishermitian=true,
     )
 
-    rhs = -T.(vec(divB))
-    println("Solving for ϕ in ∇⋅B=∇²ϕ...")
+    # Solve -L₀(phi) = -div(B) + div_boundary.
+    rhs = -T.(vec(divB)) .+ vec(div_boundary)
+
+    println("Solving for ϕ in ∇⋅B=∇²ϕ with zero corrected x2 boundary flux...")
     phi_vec, history = IterativeSolvers.cg(
-    A, rhs;
-    reltol=1e-10,
-    abstol=1e-12,
-    maxiter=10_000,
-    log=true,
+        A, rhs;
+        reltol=reltol,
+        abstol=abstol,
+        maxiter=maxiter,
+        log=true,
     )
-    println("ϕ found.")
 
     phi = reshape(phi_vec, dims)
-    residual = laplacien(phi, dx1, dx2, dx3, BC) .- divB
+
+    # Restore the inhomogeneous boundary gradients needed to cancel fB.
+    grad_phi = gradient(phi, dx1, dx2, dx3, BC)
+    grad_phi[1:Nx1, 1,      1:Nx3, 2] .= fB[1:Nx1, 1,      1:Nx3, 2]
+    grad_phi[1:Nx1, Nx2+1, 1:Nx3, 2] .= fB[1:Nx1, Nx2+1, 1:Nx3, 2]
+
+    residual = kharma_face_div(grad_phi, dx1, dx2, dx3) .- divB
     residual_norm = LinearAlgebra.norm(residual)
 
     println("Final Residual Norm: ", residual_norm)
-
     return phi, residual, residual_norm, history
 end
 
