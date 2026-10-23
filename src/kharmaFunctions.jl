@@ -477,7 +477,4 @@ function update_par(par_string,Nx1, Nx2,Nx3;mesh_Nx1=nothing,mesh_Nx2=nothing,me
     return new_string
 end
 
-
-
-
 end

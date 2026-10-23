@@ -161,7 +161,7 @@ function merge_meshblocks(
         MeshBlockSize = Int32.(collect(Np)),
         # top-level datasets
         Levels           = zeros(Int64, 1),
-        LogicalLocations = zeros(Int64, 1, 3),
+        LogicalLocations = zeros(Int64, 3, 1),
     )
 end
 

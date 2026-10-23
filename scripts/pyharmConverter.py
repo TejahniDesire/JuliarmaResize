@@ -94,8 +94,9 @@ def metric_arrays(grid, counts):
     return gcov, gcon, gdet_center, gdet_face
 
 
-def resize_rhdf(input_rhdf_file, input_phdf_file,
+def resize_rhdf(input_rhdf_file, input_phdf_file, metric_file,
                 Nx1, Nx2, Nx3, include_old_metric=False):
+    
     INPUT = Path(input_phdf_file)
     CONVERTED = Path(input_rhdf_file)
 
@@ -146,34 +147,23 @@ def resize_rhdf(input_rhdf_file, input_phdf_file,
         values["gdet_old_center"] = gdet_old_center
         values["gdet_old_face"] = gdet_old_face
 
-    with h5py.File(CONVERTED, "r+") as h5file:
+
+    # The metric doesn't vary with x3, so gzip + shuffle compresses these
+    # repeated values to a few MB instead of ~1 GB.
+    with h5py.File(metric_file, "w") as h5file:
         for name, data in values.items():
-            if name in h5file:
-                del h5file[name]
-            h5file.create_dataset(name, data=data)
-            print(f"Added {name} to {CONVERTED}")
+            if np.ndim(data) == 0:
+                h5file.create_dataset(name, data=data)
+            else:
+                h5file.create_dataset(name, data=data, compression="gzip",
+                                      compression_opts=4, shuffle=True)
+            print(f"Added {name} to {metric_file}")
 
 
-# input_rhdf_file = "/home/june/Desktop/Code/Repos/kharmaResize/meshBlockRuns/torus.out1.00005_Test.rhdf"
-# input_phdf_file = "/home/june/Desktop/Code/Repos/kharmaResize/meshBlockRuns/torus.out0.00005.phdf"
-# # output_rhdf_file = "/home/june/Desktop/Code/Repos/kharmaResize/fullPipelineTest/kharma_resampled_r24.rhdf"
-# # new resolution
-# Nx1 = 256
-# Nx2 = 128
-# Nx3 = 128
-# # 1=Dirichlet, 2=Neumann, 3=periodic, 4=transmitting
-# boundary_conditions = [
-#     (1,1),
-#     (4,4),
-#     (3,3)
-# ]
-# # choice for interpolation type (1:linear or 2:nearest neighbor)
-# method = 1 
-# # number of threads for julia
-# nthread = 10
-# # ---------------------------------------------------------------------------------
-# # ---------------------------------------------------------------------------------
+    # with h5py.File(CONVERTED, "r+") as h5file:
+    #     for name, data in values.items():
+    #         if name in h5file:
+    #             del h5file[name]
+    #         h5file.create_dataset(name, data=data)
+    #         print(f"Added {name} to {CONVERTED}")
 
-# print("Adding needed values to rhdf file from phdf file...")
-
-# resize_rhdf(input_rhdf_file, input_phdf_file, Nx1, Nx2, Nx3, include_old_metric=False)

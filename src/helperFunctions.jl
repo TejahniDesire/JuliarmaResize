@@ -34,7 +34,7 @@ function are_all_values_equal(vector,tolerance = 1e-12)
         check if all values of a matrix are equal
     """
     vector = vec(vector)
-    maximum(vector .- vector[1]) < tolerance
+    maximum(abs,vector .- vector[1]) < tolerance
 end
 
 
@@ -85,23 +85,24 @@ function faceB_to_center(fB, gdet, nx1, nx2, nx3; ng=0)
     kc = (ng + 1):(ng + nx3)
 
     Bc = Array{Float64}(undef, nx1, nx2, nx3, 3)
-
+    sdiv(a, g) = iszero(g) ? zero(a) : a / g # replaces 0/0 with 0
+    
     # Average the two x1 faces surrounding each cell.
     Bc[:, :, :, 1] .= 0.5 .* (
-        fB[ic,     jc, kc, 1]./gdet[ic,     jc, kc, 1] .+
-        fB[ic .+ 1, jc, kc, 1]./gdet[ic .+ 1, jc, kc, 1]
+        sdiv.(fB[ic,     jc, kc, 1], gdet[ic,     jc, kc, 1]) .+ 
+        sdiv.(fB[ic .+ 1, jc, kc, 1],gdet[ic .+ 1, jc, kc, 1])
     )
 
     # Average the two x2 faces surrounding each cell.
     Bc[:, :, :, 2] .= 0.5 .* (
-        fB[ic, jc,     kc, 2]./gdet[ic, jc,     kc, 2] .+
-        fB[ic, jc .+ 1, kc, 2]./gdet[ic, jc .+ 1, kc, 2]
+        sdiv.(fB[ic, jc,     kc, 2],gdet[ic, jc,     kc, 2]) .+
+        sdiv.(fB[ic, jc .+ 1, kc, 2],gdet[ic, jc .+ 1, kc, 2])
     )
 
     # Average the two x3 faces surrounding each cell.
     Bc[:, :, :, 3] .= 0.5 .* (
-        fB[ic, jc, kc,     3]./gdet[ic, jc, kc,     3] .+ 
-        fB[ic, jc, kc .+ 1, 3]./gdet[ic, jc, kc .+ 1, 3]
+        sdiv.(fB[ic, jc, kc,     3],gdet[ic, jc, kc,     3]) .+ 
+        sdiv.(fB[ic, jc, kc .+ 1, 3],gdet[ic, jc, kc .+ 1, 3])
     )
 
     return Bc
@@ -418,6 +419,19 @@ function pad_face_array(
     end
 
     return P1, P2, P3
+end
+
+
+function new_dt(Nx1,Nx2,Nx3,Nx1_old,Nx2_old,Nx3_old,dt_old,dt_last_old)
+    ratio = minimum((Nx1_old / Nx1, Nx2_old / Nx2, Nx3_old / Nx3))
+    safety = 0.9          # optional margin, since the scaling isn't exact
+
+    dt_new = safety * min(ratio, 1.0) * dt_old
+
+    dt_last_new = safety * min(ratio, 1.0) * dt_last_old
+
+    return dt_new, dt_last_new
+
 end
 
 end

@@ -15,11 +15,6 @@ import HDF5
 import LinearAlgebra
 import SparseArrays
 import IterativeSolvers
-import Printf
-import Calculus
-import Plots
-import Statistics
-
 
 
 
@@ -28,6 +23,7 @@ import Statistics
 struct Config 
     infile_rhdf::String
     outfile_rhdf::String 
+    metric_file::String
     resize_method::String
     BC::Array
     # New resolution 
@@ -296,6 +292,7 @@ function calculate_cons_vars(rhdf_h5_path,prim_rho, prim_u, prim_uvec, cons_fb, 
         prim_u = kF.get_real_cells_vector(prim_u, NGhost)
         prim_rho = kF.get_real_cells_vector(prim_rho, NGhost)
     end
+
     # --------------------------------------------
     # --------------------------------------------
     # Read needed vars
@@ -309,7 +306,6 @@ function calculate_cons_vars(rhdf_h5_path,prim_rho, prim_u, prim_uvec, cons_fb, 
     gcov_raw = HDF5.read(rhdf_file["gcov_"*grid])
     gdet_center_raw = HDF5.read(rhdf_file["gdet_"*grid*"_center"])
     gdet_face_raw = HDF5.read(rhdf_file["gdet_"*grid*"_face"])
-    NGhost = HDF5.attrs(rhdf_file["Info"])["NGhost"]
     close(rhdf_file)
 
     
@@ -425,6 +421,13 @@ function rewrite_as_vlen_ascii!(parent, name)
     return nothing
 end
 
+function physical_bc(og_rhdf)
+    p = HDF5.attrs(og_rhdf["Params"])
+    rules = Dict("outflow" => "neumann", "periodic" => "periodic", "transmitting" => "transmitting")
+    bc(s) = haskey(rules, s) ? rules[s] : error("no padding rule for KHARMA boundary '$s'")
+    [(bc(p["Boundaries/inner_x$d"]), bc(p["Boundaries/outer_x$d"])) for d in 1:3]
+end
+
 # TODO
 # Treat "Info/dt", "Params/Globals/dt_last", and timestep-control settings such as "GRMHD/dt_start", "dt_min", "max_dt_increase", and "start_dt_light" carefully:
 # a finer grid can require a smaller timestep. Don’t blindly reuse the old timestep value; set or recompute it consistently for the resized restart. 
@@ -434,20 +437,20 @@ function write_rhdf(
     x1_faces, x2_faces, x3_faces,       # face coordinates
     x1_centers, x2_centers, x3_centers, # center coordinates
     prim_rho, prim_u, prim_uvec,        # density, energy, velocity field
-    cons_fb, BC;                            # cleaned B-field
+    cons_fb;                            # cleaned B-field
     kill_policy = true                  # remove existing outfile
     )
     """
         write new rhdf file from resized values
     """
-    
-
+    println("-----------------------------------------")
     # --------------------------------------------
     # --------------------------------------------
     # 
     mb_nx = (cfg.mesh_nx1, cfg.mesh_nx2, cfg.mesh_nx3)
     infile = cfg.infile_rhdf
     outfile = cfg.outfile_rhdf
+    abspath(infile) == abspath(outfile) && throw(ArgumentError("outfile must differ from infile"))
     
     og_rhdf = HDF5.h5open(infile, "r" )
     if isfile(outfile)
@@ -464,22 +467,25 @@ function write_rhdf(
     # --------------------------------------------
     # --------------------------------------------
     # get conservative variables
-    cons_rho, cons_u, cons_uvec = calculate_cons_vars(infile,prim_rho, prim_u, prim_uvec, cons_fb,"new");
+    cons_rho, cons_u, cons_uvec = calculate_cons_vars(cfg.metric_file, prim_rho, prim_u, prim_uvec, cons_fb, "new")
     # --------------------------------------------
     # --------------------------------------------
     # Pad all arrays for NGhost
+    BC = physical_bc(og_rhdf)
 
     NGhost = HDF5.attrs(og_rhdf["Info"])["NGhost"]
+    Nx1_old, Nx2_old, Nx3_old = HDF5.attrs(og_rhdf["Info"])["RootGridSize"]
+
     dx1 = kF.hF.get_dx(x1_faces)
     dx2 = kF.hF.get_dx(x2_faces)
     dx3 = kF.hF.get_dx(x3_faces)
     Nx1, Nx2, Nx3 = size(prim_rho)
-    x1_faces = collect(x1_faces[1] - dx1 * NGhost:dx1:x1_faces[end] + dx1 * NGhost)
-    x2_faces = collect(x2_faces[1] - dx2 * NGhost:dx2:x2_faces[end] + dx2 * NGhost)
-    x3_faces = collect(x3_faces[1] - dx3 * NGhost:dx3:x3_faces[end] + dx3 * NGhost)
-    x1_centers = collect(x1_centers[1] - dx1 * NGhost:dx1:x1_centers[end] + dx1 * NGhost)
-    x2_centers = collect(x2_centers[1] - dx2 * NGhost:dx2:x2_centers[end] + dx2 * NGhost)
-    x3_centers = collect(x3_centers[1] - dx3 * NGhost:dx3:x3_centers[end] + dx3 * NGhost)
+    x1_faces   = collect(range(x1_faces[1]   - dx1*NGhost, x1_faces[end]   + dx1*NGhost; length = length(x1_faces)   + 2NGhost))
+    x2_faces   = collect(range(x2_faces[1]   - dx2*NGhost, x2_faces[end]   + dx2*NGhost; length = length(x2_faces)   + 2NGhost))
+    x3_faces   = collect(range(x3_faces[1]   - dx3*NGhost, x3_faces[end]   + dx3*NGhost; length = length(x3_faces)   + 2NGhost))
+    x1_centers = collect(range(x1_centers[1] - dx1*NGhost, x1_centers[end] + dx1*NGhost; length = length(x1_centers) + 2NGhost))
+    x2_centers = collect(range(x2_centers[1] - dx2*NGhost, x2_centers[end] + dx2*NGhost; length = length(x2_centers) + 2NGhost))
+    x3_centers = collect(range(x3_centers[1] - dx3*NGhost, x3_centers[end] + dx3*NGhost; length = length(x3_centers) + 2NGhost))
     prim_rho  = kF.hF.pad_array(prim_rho;Nx1_bc=BC[1],Nx2_bc=BC[2],Nx3_bc=BC[3],NGhost=NGhost) 
     prim_u    = kF.hF.pad_array(prim_u;Nx1_bc=BC[1],Nx2_bc=BC[2],Nx3_bc=BC[3],NGhost=NGhost)  
 
@@ -512,9 +518,12 @@ function write_rhdf(
         Nx1_bc=BC[1],Nx2_bc=BC[2],Nx3_bc=BC[3],
         NGhost=NGhost,
     )
+
+    @show(minimum(prim_rho) > 0)
+    @show(!any(isnan, cons_u))
     # println("Padding occured...")
-    jlo = NGhost + 1
-    jhi = size(cons_fb2, 2) - NGhost
+    # jlo = NGhost + 1
+    # jhi = size(cons_fb2, 2) - NGhost
 
     # @show maximum(abs, cons_fb2[:, jlo, :])
     # @show maximum(abs, cons_fb2[:, jhi, :])
@@ -553,23 +562,6 @@ function write_rhdf(
     fb_shape = size(cons_fb)
     cons_fb = reshape(cons_fb,fb_shape[1],fb_shape[2],fb_shape[3],fb_shape[4],1)
 
-    @show(size(x1_faces))
-    @show(size(x2_faces))
-    @show(size(x3_faces))
-
-    @show(size(x1_centers))
-    @show(size(x2_centers))
-    @show(size(x3_centers))
-
-    @show(size(cons_rho))
-    @show(size(cons_u))
-    @show(size(cons_uvec))
-
-    @show(size(prim_u))
-    @show(size(prim_rho))
-    @show(size(prim_uvec))
-    @show(size(cons_fb))
-
 
     mesh_info=Meshblocks.split_meshblocks(
     x1_faces, x2_faces, x3_faces,
@@ -596,24 +588,6 @@ function write_rhdf(
     # for updating <parthenon/meshblock> in Input/File
     meshblock_nx,blocks_per_dim,
     ) = mesh_info
-    println()
-    println("POST MESH------------------------------")
-    @show(size(x1_faces))
-    @show(size(x2_faces))
-    @show(size(x3_faces))
-
-    @show(size(x1_centers))
-    @show(size(x2_centers))
-    @show(size(x3_centers))
-
-    @show(size(cons_rho))
-    @show(size(cons_u))
-    @show(size(cons_uvec))
-
-    @show(size(prim_u))
-    @show(size(prim_rho))
-    @show(size(prim_uvec))
-    @show(size(cons_fb))
 
 
     # --------------------------------------------
@@ -659,7 +633,7 @@ function write_rhdf(
     # "BlocksPerPE","MeshBlockSize","MaxLevel","Multilevel","NumMeshBlocks","RootGridDomain","RootGridSize","RootLevel"
     HDF5.create_group(resized_rhdf, "Info")
     for key in keys(HDF5.attrs(og_rhdf["Info"]))
-        if !(key in ["BlocksPerPE", "MeshBlockSize", "MaxLevel", "Multilevel", "NumMeshBlocks", "RootGridSize", "RootLevel"])
+        if !(key in ["BlocksPerPE", "MeshBlockSize", "MaxLevel", "Multilevel", "NumMeshBlocks", "RootGridSize", "RootLevel","dt"])
             HDF5.attributes(resized_rhdf["Info"])[key] = HDF5.attrs(og_rhdf["Info"])[key]
         end
     end 
@@ -672,6 +646,11 @@ function write_rhdf(
     HDF5.attributes(resized_rhdf["Info"])["RootLevel"] = RootLevel
     HDF5.attributes(resized_rhdf["Info"])["BlocksPerPE"] = BlocksPerPE
     HDF5.attributes(resized_rhdf["Info"])["MaxLevel"] = MaxLevel
+
+    dt_new, dt_last_new = kF.hF.new_dt(Nx1,Nx2,Nx3,Nx1_old,Nx2_old,Nx3_old,HDF5.attrs(og_rhdf["Info"])["dt"],HDF5.attrs(og_rhdf["Params"])["Globals/dt_last"])
+
+    HDF5.attributes(resized_rhdf["Info"])["dt"] = dt_new
+    
 
     # --------------------------------------------
     # --------------------------------------------
@@ -687,8 +666,6 @@ function write_rhdf(
     HDF5.create_group(resized_rhdf, "Input")
     input_group = resized_rhdf["Input"]
     HDF5.attributes(resized_rhdf["Input"])["File"] = output_par_string
-    println
-    println(output_par_string)
     write_par_file_attribute!(input_group, output_par_string)
     
 
@@ -721,8 +698,12 @@ function write_rhdf(
     
 
     for key in keys(og_params)
-        HDF5.attributes(resized_rhdf["Params"])[key] = og_params[key]
+        if !(key in ["Globals/dt_last"])
+            HDF5.attributes(resized_rhdf["Params"])[key] = og_params[key]
+        end
     end
+
+    HDF5.attributes(resized_rhdf["Params"])["Globals/dt_last"] = dt_last_new
 
     # --------------------------------------------
     # --------------------------------------------
@@ -839,8 +820,7 @@ function main(cfg)
         cfg,                    
         x1_faces, x2_faces, x3_faces,       
         x1_centers, x2_centers, x3_centers, 
-        prim_rho, prim_u, prim_uvec, cons_fb,
-        cfg.BC                      
+        prim_rho, prim_u, prim_uvec, cons_fb,                     
     )
     
 end
