@@ -1,5 +1,7 @@
+path_to_JULIARMA = "/home/june/Desktop/Code/Repos/kharmaResize/"
+
 import ArgParse
-include("src/kharmaResize.jl")
+include(path_to_JULIARMA * "src/kharmaResize.jl")
 import .kharmaResize as kResize
 
 import JLD2
@@ -78,6 +80,21 @@ function parse_commandline()
             arg_type = Int
             default = 128
 
+        "--meshnx1", "-j"
+            help = "Resized meshblocks/Nx1"
+            arg_type = Int
+            default = 256
+
+        "--meshnx2", "-k"
+            help = "Resized meshblocks/Nx2"
+            arg_type = Int
+            default = 128
+
+        "--meshnx3", "-l"
+            help = "Resized meshblocks/Nx3"
+            arg_type = Int
+            default = 128
+
 
     end
 
@@ -103,6 +120,7 @@ input_str *= "   input: " * string(parsed_args["infile"])
 input_str *= "   output: " * string(parsed_args["outfile"])
 
 println("Running JuliarmaResizer with the following params: ")
+println("---------------------------------------------------")
 println("Files: ")
 println("   input: ",parsed_args["infile"])
 println("   output: ",parsed_args["outfile"])
@@ -120,20 +138,43 @@ for key in ["nx1","nx2","nx3"]
     println("   ",key,": ",parsed_args[key])
 end
 
+for key in ["meshnx1","meshnx2","meshnx3"]
+    println("   ",key,": ",parsed_args[key])
+end
+
+
 println("Boundary Conditions (inner,outer):")
 for key in ["1","2","3"]
     println("   nx$(key): (",BC_input[parsed_args["bc" * key * "inner"]], ", ",BC_input[parsed_args["bc" * key * "outer"]],")")
 end
 
+method_input = Dict(
+    1 => "linear",
+    2 => "NN"
+)
+println("Method: ", method_input[parsed_args["method"]])
 # --------------------------------------------
 # --------------------------------------------
+
+
+
 test_rhdf = "/home/june/Desktop/Code/Repos/kharmaResize/testDataGhostCells/torus.out1.00048.rhdf"
 test_output = "/home/june/Desktop/Code/Repos/kharmaResize/testDataGhostCells/kharma_resampled.rhdf"
 
-BC = [("dirichlet","dirichlet"),("transmitting","transmitting"),("periodic","periodic")]
+BC = [
+    (BC_input[parsed_args["bc1inner"]],BC_input[parsed_args["bc1outer"]]),
+    (BC_input[parsed_args["bc2inner"]],BC_input[parsed_args["bc2outer"]]),
+    (BC_input[parsed_args["bc3inner"]],BC_input[parsed_args["bc3outer"]]),
+    ]
 cfg = kResize.Config(
     parsed_args["infile"],
     parsed_args["outfile"], 
-    "linear",# place NN here for nearest neighbor compare
+    method_input[parsed_args["method"]],# place NN here for nearest neighbor compare
     BC, 
-    256, 128, 128)
+    parsed_args["nx1"], parsed_args["nx2"], parsed_args["nx3"],
+    parsed_args["meshnx1"], parsed_args["meshnx2"], parsed_args["meshnx3"])
+
+println("---------------------------------------------------")
+println("Beginning Resizing...")
+println()
+kResize.main(cfg)

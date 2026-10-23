@@ -5,9 +5,11 @@ export kharmaResize
 
 
 include("kharmaFunctions.jl")
-
+include("meshblocks.jl")
 
 import .kharmaFunctions as kF
+import .Meshblocks
+
 import HDF5
 
 import LinearAlgebra
@@ -32,7 +34,86 @@ struct Config
     nx1::Int 
     nx2::Int 
     nx3::Int
+    mesh_nx1::Int
+    mesh_nx2::Int 
+    mesh_nx3::Int
 
+end
+
+function get_rhdf_params(rhdf_h5_path)
+    println( "Reading KHARMA dump:" )
+    println( " ",rhdf_h5_path)
+
+    rhdf_file = HDF5.h5open(rhdf_h5_path, "r" )
+
+    numMeshBlocks = HDF5.attrs(rhdf_file["Info"])["NumMeshBlocks"]
+
+    Nx1_old, Nx2_old, Nx3_old =HDF5.attrs(rhdf_file["Info"])["RootGridSize"]
+    
+    NGhost = HDF5.attrs(rhdf_file["Info"])["NGhost"]
+    Nx1_GI = Nx1_old + 2 * NGhost
+    Nx2_GI = Nx2_old + 2 * NGhost
+    Nx3_GI = Nx3_old + 2 * NGhost
+
+    if numMeshBlocks == 1
+    
+        # TODO: dont forget to add the removed dims
+        x1_old_faces = HDF5.read(rhdf_file["Locations"]["x"])[:,1]
+        x2_old_faces = HDF5.read(rhdf_file["Locations"]["y"])[:,1]
+        x3_old_faces = HDF5.read(rhdf_file["Locations"]["z"])[:,1]
+
+        x1_old_centers = HDF5.read(rhdf_file["VolumeLocations"]["x"])[:,1]
+        x2_old_centers = HDF5.read(rhdf_file["VolumeLocations"]["y"])[:,1]
+        x3_old_centers = HDF5.read(rhdf_file["VolumeLocations"]["z"])[:,1]
+
+        x1_range = (x1_old_faces[1 + NGhost], x1_old_faces[end - NGhost])
+        x2_range = (x2_old_faces[1 + NGhost], x2_old_faces[end - NGhost])
+        x3_range = (x3_old_faces[1 + NGhost], x3_old_faces[end - NGhost])
+
+
+
+        
+        prim_rho = HDF5.read(rhdf_file["prims.rho"])[:,:,:,1]    # cell centered
+        prim_u = HDF5.read(rhdf_file["prims.u"])[:,:,:,1]        # cell centered
+        prim_uvec = HDF5.read(rhdf_file["prims.uvec"])[:,:,:,:,1] # cell centered
+        cons_fb = HDF5.read(rhdf_file["cons.fB"])[:,:,:,:,1]      # face centered
+    else
+        println("Meshblock size > 1, merging...")
+        (;x1_faces,x2_faces,x3_faces,
+        x1_centers,x2_centers,x3_centers,
+        prim_rho,prim_u,prim_uvec,cons_fb) = Meshblocks.merge_meshblocks(rhdf_file)
+
+        x1_old_faces = x1_faces[:,1]
+        x2_old_faces = x2_faces[:,1]
+        x3_old_faces = x3_faces[:,1]
+
+        x1_old_centers = x1_centers[:,1]
+        x2_old_centers = x2_centers[:,1]
+        x3_old_centers = x3_centers[:,1]
+
+        x1_range = (x1_old_faces[1 + NGhost], x1_old_faces[end - NGhost])
+        x2_range = (x2_old_faces[1 + NGhost], x2_old_faces[end - NGhost])
+        x3_range = (x3_old_faces[1 + NGhost], x3_old_faces[end - NGhost])
+        
+    
+
+
+        
+        prim_rho = prim_rho[:,:,:,1]    # cell centered
+        prim_u = prim_u[:,:,:,1]        # cell centered
+        prim_uvec = prim_uvec[:,:,:,:,1] # cell centered
+        cons_fb = cons_fb[:,:,:,:,1]     # face centered
+    end
+
+    close(rhdf_file)
+
+    return (
+        x1_old_faces,x2_old_faces,x3_old_faces,
+        x1_old_centers,x2_old_centers,x3_old_centers,
+        x1_range,x2_range,x3_range,
+        Nx1_GI,Nx2_GI,Nx3_GI,NGhost,
+        prim_rho,prim_u,prim_uvec,cons_fb
+    )
 end
 
 function resize_grid(rhdf_h5_path,Nx1,Nx2,Nx3;method="linear")
@@ -50,42 +131,48 @@ function resize_grid(rhdf_h5_path,Nx1,Nx2,Nx3;method="linear")
     """
     println( "Reading KHARMA dump:" )
     println( " ",rhdf_h5_path)
-    rhdf_file = HDF5.h5open(rhdf_h5_path, "r" )
-    # --------------------------------------------
-    # --------------------------------------------
-    # Load In Parameters--------------------------
-    Nx1_old, Nx2_old, Nx3_old =HDF5.attrs(rhdf_file["Info"])["RootGridSize"]
+    # rhdf_file = HDF5.h5open(rhdf_h5_path, "r" )
+    # # --------------------------------------------
+    # # --------------------------------------------
+    # # Load In Parameters--------------------------
+    # Nx1_old, Nx2_old, Nx3_old =HDF5.attrs(rhdf_file["Info"])["RootGridSize"]
 
-    NGhost = HDF5.attrs(rhdf_file["Info"])["NGhost"]
-    Nx1_GI = Nx1_old + 2 * NGhost
-    Nx2_GI = Nx2_old + 2 * NGhost
-    Nx3_GI = Nx3_old + 2 * NGhost
+    # NGhost = HDF5.attrs(rhdf_file["Info"])["NGhost"]
+    # Nx1_GI = Nx1_old + 2 * NGhost
+    # Nx2_GI = Nx2_old + 2 * NGhost
+    # Nx3_GI = Nx3_old + 2 * NGhost
     
-    # TODO: dont forget to add the removed dims
-    x1_old_faces = HDF5.read(rhdf_file["Locations"]["x"])[:,1]
-    x2_old_faces = HDF5.read(rhdf_file["Locations"]["y"])[:,1]
-    x3_old_faces = HDF5.read(rhdf_file["Locations"]["z"])[:,1]
+    # # TODO: dont forget to add the removed dims
+    # x1_old_faces = HDF5.read(rhdf_file["Locations"]["x"])[:,1]
+    # x2_old_faces = HDF5.read(rhdf_file["Locations"]["y"])[:,1]
+    # x3_old_faces = HDF5.read(rhdf_file["Locations"]["z"])[:,1]
 
-    x1_old_centers = HDF5.read(rhdf_file["VolumeLocations"]["x"])[:,1]
-    x2_old_centers = HDF5.read(rhdf_file["VolumeLocations"]["y"])[:,1]
-    x3_old_centers = HDF5.read(rhdf_file["VolumeLocations"]["z"])[:,1]
+    # x1_old_centers = HDF5.read(rhdf_file["VolumeLocations"]["x"])[:,1]
+    # x2_old_centers = HDF5.read(rhdf_file["VolumeLocations"]["y"])[:,1]
+    # x3_old_centers = HDF5.read(rhdf_file["VolumeLocations"]["z"])[:,1]
 
-    x1_range = (x1_old_faces[1 + NGhost], x1_old_faces[end - NGhost])
-    x2_range = (x2_old_faces[1 + NGhost], x2_old_faces[end - NGhost])
-    x3_range = (x3_old_faces[1 + NGhost], x3_old_faces[end - NGhost])
+    # x1_range = (x1_old_faces[1 + NGhost], x1_old_faces[end - NGhost])
+    # x2_range = (x2_old_faces[1 + NGhost], x2_old_faces[end - NGhost])
+    # x3_range = (x3_old_faces[1 + NGhost], x3_old_faces[end - NGhost])
 
 
 
     
-    prim_rho = HDF5.read(rhdf_file["prims.rho"])[:,:,:,1]    # cell centered
-    prim_u = HDF5.read(rhdf_file["prims.u"])[:,:,:,1]        # cell centered
-    prim_uvec = HDF5.read(rhdf_file["prims.uvec"])[:,:,:,:,1] # cell centered
-    cons_fb = HDF5.read(rhdf_file["cons.fB"])[:,:,:,:,1]      # face centered
-    # cons_rho =HDF5.read(rhdf_rst["cons.rho"])     # face centered
-    # cons_u =HDF5.read(rhdf_rst["cons.u"])         # face centered
-    # cons_uvec = HDF5.read(rhdf_rst["cons.uvec"])  # face centered
+    # prim_rho = HDF5.read(rhdf_file["prims.rho"])[:,:,:,1]    # cell centered
+    # prim_u = HDF5.read(rhdf_file["prims.u"])[:,:,:,1]        # cell centered
+    # prim_uvec = HDF5.read(rhdf_file["prims.uvec"])[:,:,:,:,1] # cell centered
+    # cons_fb = HDF5.read(rhdf_file["cons.fB"])[:,:,:,:,1]      # face centered
+    # # cons_rho =HDF5.read(rhdf_rst["cons.rho"])     # face centered
+    # # cons_u =HDF5.read(rhdf_rst["cons.u"])         # face centered
+    # # cons_uvec = HDF5.read(rhdf_rst["cons.uvec"])  # face centered
 
-    close(rhdf_file)
+    # close(rhdf_file)
+    x1_old_faces,x2_old_faces,x3_old_faces,
+    x1_old_centers,x2_old_centers,x3_old_centers,
+    x1_range,x2_range,x3_range,
+    Nx1_GI,Nx2_GI,Nx3_GI,NGhost,
+    prim_rho,prim_u,prim_uvec,cons_fb = get_rhdf_params(rhdf_h5_path)
+
     # --------------------------------------------
     # --------------------------------------------
     # New Grid Parameters
@@ -241,44 +328,6 @@ function calculate_cons_vars(rhdf_h5_path,prim_rho, prim_u, prim_uvec, cons_fb, 
 
     
 end
-function calculate_cons_varsTEST(rhdf_h5_path,cons_fb)
-    println( "Reading KHARMA dump:" )
-    println( " ",rhdf_h5_path)
-    rhdf_file = HDF5.h5open(rhdf_h5_path, "r" )
-    
-
-    gamma_ad = HDF5.read(rhdf_file["gamma_ad"])
-    
-    gcon_new_raw = HDF5.read(rhdf_file["gcon_new"])
-    gcov_new_raw = HDF5.read(rhdf_file["gcov_new"])
-    gdet_new_center = HDF5.read(rhdf_file["gdet_new_center"])
-    gdet_new_face = HDF5.read(rhdf_file["gdet_new_face"])
-    gcon_new,gcov_new,gdet_new_center,gdet_new_face = kF.hF.reorder_dims(gcon_new_raw,gcov_new_raw,gdet_new_center,gdet_new_face)
-    Nx1,Nx2,Nx3 = size(gcon_new)
-    cc_cons_fb_new = kF.hF.faceB_to_center(cons_fb,gdet_new_face, Nx1, Nx2, Nx3; ng=0)
-
-     
-
-    cons_fb_old = HDF5.read(rhdf_file["cons.fB"])[:,:,:,:,1]
-    prim_rho = get_real_cells(HDF5.read(rhdf_file["prims.rho"])[:,:,:,1],4)    # cell centered
-    prim_u = get_real_cells(HDF5.read(rhdf_file["prims.u"])[:,:,:,1],4)        # cell centered
-    prim_uvec = kF.get_real_cells_vector(HDF5.read(rhdf_file["prims.uvec"])[:,:,:,:,1],4) # cell centered
-
-
-    gcon_old_raw = HDF5.read(rhdf_file["gcon_old"])
-    gcov_old_raw = HDF5.read(rhdf_file["gcov_old"])
-    gdet_old_center = HDF5.read(rhdf_file["gdet_old_center"])
-    gdet_old_face = HDF5.read(rhdf_file["gdet_old_face"])
-    close(rhdf_file)
-    gcon_old,gcov_old,gdet_old_center,gdet_old_face = kF.hF.reorder_dims(gcon_old_raw,gcov_old_raw,gdet_old_center,gdet_old_face)
-    Nx1_old,Nx2_old,Nx3_old = size(gcon_old)
-    cc_cons_fb_old = kF.hF.faceB_to_center(kF.get_real_cells_vector(cons_fb_old,4), gdet_old_face, Nx1_old, Nx2_old, Nx3_old; ng=0)
-   
-
-    cons_rho, cons_u, cons_uvec = p_to_u_arrays(prim_rho, prim_u, prim_uvec, cc_cons_fb_old, gcon_old, gcov_old, gdet_old_center, gamma_ad)
-    return cons_rho, cons_u, cons_uvec
-    
-end
 
 
 function div_cleanup(x1_centers, x2_centers, x3_centers, fB, BC)
@@ -381,7 +430,7 @@ end
 # a finer grid can require a smaller timestep. Don’t blindly reuse the old timestep value; set or recompute it consistently for the resized restart. 
 # WallTime and run counters such as "NBDel", "NBNew", and "NCycle" are generally bookkeeping values to reset or regenerate.
 function write_rhdf(
-    infile, outfile,                    # path to original and new rhdf file
+    cfg,
     x1_faces, x2_faces, x3_faces,       # face coordinates
     x1_centers, x2_centers, x3_centers, # center coordinates
     prim_rho, prim_u, prim_uvec,        # density, energy, velocity field
@@ -396,6 +445,10 @@ function write_rhdf(
     # --------------------------------------------
     # --------------------------------------------
     # 
+    mb_nx = (cfg.mesh_nx1, cfg.mesh_nx2, cfg.mesh_nx3)
+    infile = cfg.infile_rhdf
+    outfile = cfg.outfile_rhdf
+    
     og_rhdf = HDF5.h5open(infile, "r" )
     if isfile(outfile)
         if kill_policy
@@ -444,27 +497,27 @@ function write_rhdf(
     cons_uvec = cat(cons_uvec1,cons_uvec2,cons_uvec3, dims=4)
     
     # Pad face array
-    print("Before NGhosts: ")
-    kF.report_max_divB(cons_fb,dx1, dx2, dx3,0)
+    # print("Before NGhosts: ")
+    # kF.report_max_divB(cons_fb,dx1, dx2, dx3,0)
 
     
 
     cons_fb1 = cons_fb[1:Nx1 + 1, 1:Nx2, 1:Nx3, 1]
     cons_fb2 = cons_fb[1:Nx1, 1:Nx2 + 1, 1:Nx3, 2]
     cons_fb3 = cons_fb[1:Nx1, 1:Nx2, 1:Nx3 + 1, 3]
-    @show maximum(abs, cons_fb2[:, 1, :])
-    @show maximum(abs, cons_fb2[:, end, :])
+    # @show maximum(abs, cons_fb2[:, 1, :])
+    # @show maximum(abs, cons_fb2[:, end, :])
     cons_fb1, cons_fb2, cons_fb3 = kF.hF.pad_face_array(
         cons_fb1, cons_fb2, cons_fb3;
         Nx1_bc=BC[1],Nx2_bc=BC[2],Nx3_bc=BC[3],
         NGhost=NGhost,
     )
-    println("Padding occured...")
+    # println("Padding occured...")
     jlo = NGhost + 1
     jhi = size(cons_fb2, 2) - NGhost
 
-    @show maximum(abs, cons_fb2[:, jlo, :])
-    @show maximum(abs, cons_fb2[:, jhi, :])
+    # @show maximum(abs, cons_fb2[:, jlo, :])
+    # @show maximum(abs, cons_fb2[:, jhi, :])
     Nx1_face_padded = Nx1+2*NGhost
     Nx2_face_padded = Nx2+2*NGhost
     Nx3_face_padded = Nx3+2*NGhost
@@ -474,23 +527,103 @@ function write_rhdf(
     cons_fb[1:Nx1_face_padded + 1, 1:Nx2_face_padded, 1:Nx3_face_padded, 1] .= cons_fb1 
     cons_fb[1:Nx1_face_padded, 1:Nx2_face_padded + 1, 1:Nx3_face_padded, 2] .= cons_fb2 
     cons_fb[1:Nx1_face_padded, 1:Nx2_face_padded, 1:Nx3_face_padded + 1, 3] .= cons_fb3
-    print("After NGhosts: ")
-    kF.report_max_divB(cons_fb,dx1, dx2, dx3,NGhost)
+    # print("After NGhosts: ")
+    # kF.report_max_divB(cons_fb,dx1, dx2, dx3,NGhost)
+    # reshape
 
-    
+    x1_faces = reshape(x1_faces, length(x1_faces), 1)
+    x2_faces = reshape(x2_faces, length(x2_faces), 1)
+    x3_faces = reshape(x3_faces, length(x3_faces), 1)
+    x1_centers = reshape(x1_centers, length(x1_centers), 1)
+    x2_centers = reshape(x2_centers, length(x2_centers), 1)
+    x3_centers = reshape(x3_centers, length(x3_centers), 1)
+    cons_rho  =reshape(cons_rho, size(cons_rho,1),size(cons_rho,2),size(cons_rho,3),1)
+    cons_u    =reshape(cons_u, size(cons_u,1),size(cons_u,2),size(cons_u,3),1)
+    cons_uvec =reshape(cons_uvec , size(cons_uvec ,1),size(cons_uvec ,2),size(cons_uvec,3),size(cons_uvec,4),1)
+
+    prim_u_shape = size(prim_u)
+    prim_u = reshape(prim_u,prim_u_shape[1],prim_u_shape[2],prim_u_shape[3],1)
+
+    prim_rho_shape = size(prim_rho)
+    prim_rho = reshape(prim_rho,prim_rho_shape[1],prim_rho_shape[2],prim_rho_shape[3],1)
+
+    uvec_shape = size(prim_uvec)
+    prim_uvec = reshape(prim_uvec,uvec_shape[1],uvec_shape[2],uvec_shape[3],uvec_shape[4],1)
+
+    fb_shape = size(cons_fb)
+    cons_fb = reshape(cons_fb,fb_shape[1],fb_shape[2],fb_shape[3],fb_shape[4],1)
+
+    @show(size(x1_faces))
+    @show(size(x2_faces))
+    @show(size(x3_faces))
+
+    @show(size(x1_centers))
+    @show(size(x2_centers))
+    @show(size(x3_centers))
+
+    @show(size(cons_rho))
+    @show(size(cons_u))
+    @show(size(cons_uvec))
+
+    @show(size(prim_u))
+    @show(size(prim_rho))
+    @show(size(prim_uvec))
+    @show(size(cons_fb))
+
+
+    mesh_info=Meshblocks.split_meshblocks(
+    x1_faces, x2_faces, x3_faces,
+    x1_centers, x2_centers, x3_centers,
+    cons_rho, cons_u, cons_uvec,
+    prim_rho, prim_u, prim_uvec,
+    cons_fb,
+    mb_nx, NGhost;
+    x2_transmitting = true,
+    )
+    (;
+    # datasets (block index last, as HDF5.read returns them)
+    x1_faces,x2_faces,x3_faces,
+    x1_centers,x2_centers,x3_centers,
+    cons_rho,cons_u,cons_uvec,
+    prim_rho,prim_u,prim_uvec,cons_fb,
+    # Blocks/
+    loc5,lx123,xmin,
+    # Info/ attributes
+    BlocksPerPE,NumMeshBlocks,RootLevel,MaxLevel,
+    Multilevel,RootGridSize,MeshBlockSize,
+    # top-level datasets
+    Levels,LogicalLocations,
+    # for updating <parthenon/meshblock> in Input/File
+    meshblock_nx,blocks_per_dim,
+    ) = mesh_info
+    println()
+    println("POST MESH------------------------------")
+    @show(size(x1_faces))
+    @show(size(x2_faces))
+    @show(size(x3_faces))
+
+    @show(size(x1_centers))
+    @show(size(x2_centers))
+    @show(size(x3_centers))
+
+    @show(size(cons_rho))
+    @show(size(cons_u))
+    @show(size(cons_uvec))
+
+    @show(size(prim_u))
+    @show(size(prim_rho))
+    @show(size(prim_uvec))
+    @show(size(cons_fb))
+
+
     # --------------------------------------------
     # --------------------------------------------
     # Blocks
     #   loc.level-gid-lid-cnghost-gflag: dataset
     #   loc.lx123:                       dataset
     #   xmin:                            dataset
-    # TODO: THESE VALUES CHANGE FOR MESHBLOCKS > 1
-    loc_5 = HDF5.read(og_rhdf["Blocks"]["loc.level-gid-lid-cnghost-gflag"])
-    loc_lx123 = HDF5.read(og_rhdf["Blocks"]["loc.lx123"])
-    xmin = reshape([x1_faces[1], x2_faces[1], x3_faces[1]], 3, 1)
-
-    resized_rhdf["Blocks/loc.level-gid-lid-cnghost-gflag"] = loc_5
-    resized_rhdf["Blocks/loc.lx123"] = loc_lx123 
+    resized_rhdf["Blocks/loc.level-gid-lid-cnghost-gflag"] = loc5
+    resized_rhdf["Blocks/loc.lx123"] = lx123 
     resized_rhdf["Blocks/xmin"] = xmin
 
 
@@ -526,17 +659,19 @@ function write_rhdf(
     # "BlocksPerPE","MeshBlockSize","MaxLevel","Multilevel","NumMeshBlocks","RootGridDomain","RootGridSize","RootLevel"
     HDF5.create_group(resized_rhdf, "Info")
     for key in keys(HDF5.attrs(og_rhdf["Info"]))
-        if !(key in ["BlocksPerPE", "MeshBlockSize", "MaxLevel", "Multilevel", "NumMeshBlocks", "RootGridDomain", "RootGridSize", "RootLevel"])
+        if !(key in ["BlocksPerPE", "MeshBlockSize", "MaxLevel", "Multilevel", "NumMeshBlocks", "RootGridSize", "RootLevel"])
             HDF5.attributes(resized_rhdf["Info"])[key] = HDF5.attrs(og_rhdf["Info"])[key]
         end
     end 
 
-    # TODO: The values below must be adjusted for meshblock > 1
-    for key in ["BlocksPerPE","MaxLevel","Multilevel","NumMeshBlocks","RootGridDomain","RootLevel"]
-        HDF5.attributes(resized_rhdf["Info"])[key] = HDF5.attrs(og_rhdf["Info"])[key]
-    end
-    HDF5.attributes(resized_rhdf["Info"])["RootGridSize"] = Vector{Int32}([Nx1, Nx2, Nx3])
-    HDF5.attributes(resized_rhdf["Info"])["MeshBlockSize"] = Vector{Int32}([Nx1 + 2*NGhost, Nx2+ 2*NGhost, Nx3+ 2*NGhost])
+    # HDF5.attributes(resized_rhdf["Info"])["RootGridDomain"] # TODO Check to make sure this does not change
+    HDF5.attributes(resized_rhdf["Info"])["RootGridSize"] = RootGridSize
+    HDF5.attributes(resized_rhdf["Info"])["MeshBlockSize"] = MeshBlockSize
+    HDF5.attributes(resized_rhdf["Info"])["Multilevel"] = Multilevel
+    HDF5.attributes(resized_rhdf["Info"])["NumMeshBlocks"] = NumMeshBlocks
+    HDF5.attributes(resized_rhdf["Info"])["RootLevel"] = RootLevel
+    HDF5.attributes(resized_rhdf["Info"])["BlocksPerPE"] = BlocksPerPE
+    HDF5.attributes(resized_rhdf["Info"])["MaxLevel"] = MaxLevel
 
     # --------------------------------------------
     # --------------------------------------------
@@ -545,11 +680,15 @@ function write_rhdf(
     #       |input_par_string = HDF5.attrs(og_rhdf["Input"])["File"]
     #       |println(input_par_string)
     input_par_string = HDF5.attrs(og_rhdf["Input"])["File"]
-    output_par_string = kF.update_par(input_par_string,Nx1,Nx2,Nx3)
+    output_par_string = kF.update_par(
+        input_par_string,Nx1,Nx2,Nx3;mesh_Nx1=meshblock_nx[1],mesh_Nx2=meshblock_nx[2],mesh_Nx3=meshblock_nx[3]
+        )
     # resized_rhdf["Input/File"] = 
     HDF5.create_group(resized_rhdf, "Input")
     input_group = resized_rhdf["Input"]
     HDF5.attributes(resized_rhdf["Input"])["File"] = output_par_string
+    println
+    println(output_par_string)
     write_par_file_attribute!(input_group, output_par_string)
     
 
@@ -557,8 +696,7 @@ function write_rhdf(
     # --------------------------------------------
     # --------------------------------------------
     # Levels
-    # TODO The value below must be adjusted for meshblock > 1
-    resized_rhdf["Levels"] = HDF5.read(og_rhdf["Levels"])
+    resized_rhdf["Levels"] = Levels
 
     # --------------------------------------------
     # --------------------------------------------
@@ -566,14 +704,14 @@ function write_rhdf(
     #   x: dataset
     #   y: dataset
     #   z: dataset
-    resized_rhdf["Locations/x"] = reshape(x1_faces, length(x1_faces), 1)
-    resized_rhdf["Locations/y"] = reshape(x2_faces, length(x2_faces), 1)
-    resized_rhdf["Locations/z"] = reshape(x3_faces, length(x3_faces), 1)
+
+    resized_rhdf["Locations/x"] = x1_faces
+    resized_rhdf["Locations/y"] = x2_faces
+    resized_rhdf["Locations/z"] = x3_faces
     # --------------------------------------------
     # --------------------------------------------
     # LogicalLocations
-    # TODO The value below must be adjusted for meshblock > 1
-    resized_rhdf["LogicalLocations"] = HDF5.read(og_rhdf["LogicalLocations"])
+    resized_rhdf["LogicalLocations"] = LogicalLocations
 
     # --------------------------------------------
     # --------------------------------------------
@@ -592,24 +730,22 @@ function write_rhdf(
     #   x: dataset
     #   y: dataset
     #   z: dataset
-    resized_rhdf["VolumeLocations/x"] = reshape(x1_centers, length(x1_centers), 1)
-    resized_rhdf["VolumeLocations/y"] = reshape(x2_centers, length(x2_centers), 1)
-    resized_rhdf["VolumeLocations/z"] = reshape(x3_centers, length(x3_centers), 1)
+
+
+    resized_rhdf["VolumeLocations/x"] = x1_centers
+    resized_rhdf["VolumeLocations/y"] = x2_centers
+    resized_rhdf["VolumeLocations/z"] = x3_centers
     # --------------------------------------------
     # --------------------------------------------
     # cons.fB
-    fb_shape = size(cons_fb)
-    print("Before Add: ")
-    kF.report_max_divB(cons_fb,dx1, dx2, dx3,NGhost)
-    cons_fb = reshape(cons_fb,fb_shape[1],fb_shape[2],fb_shape[3],fb_shape[4],1)
+    
+    # kF.report_max_divB(cons_fb,dx1, dx2, dx3,NGhost)
+    
     resized_rhdf["cons.fB"] = cons_fb
 
     # --------------------------------------------
     # --------------------------------------------
     # cons.rho, cons.u,cons.uvec
-    cons_rho  =reshape(cons_rho, size(cons_rho,1),size(cons_rho,2),size(cons_rho,3),1)
-    cons_u    =reshape(cons_u, size(cons_u,1),size(cons_u,2),size(cons_u,3),1)
-    cons_uvec =reshape(cons_uvec , size(cons_uvec ,1),size(cons_uvec ,2),size(cons_uvec,3),size(cons_uvec,4),1)
 
     resized_rhdf["cons.rho"] = cons_rho
     resized_rhdf["cons.u"] = cons_u
@@ -618,22 +754,18 @@ function write_rhdf(
     # --------------------------------------------
     # --------------------------------------------
     # prims.rho
-    prim_rho_shape = size(prim_rho)
-    prim_rho = reshape(prim_rho,prim_rho_shape[1],prim_rho_shape[2],prim_rho_shape[3],1)
+    
     resized_rhdf["prims.rho"] = prim_rho
 
     # --------------------------------------------
     # --------------------------------------------
     # prims.u
-    prim_u_shape = size(prim_u)
-    prim_u = reshape(prim_u,prim_u_shape[1],prim_u_shape[2],prim_u_shape[3],1)
     resized_rhdf["prims.u"] = prim_u
 
     # --------------------------------------------
     # --------------------------------------------
     # prims.uvec
-    uvec_shape = size(prim_uvec)
-    prim_uvec = reshape(prim_uvec,uvec_shape[1],uvec_shape[2],uvec_shape[3],uvec_shape[4],1)
+
     resized_rhdf["prims.uvec"] = prim_uvec
 
     close(resized_rhdf)
@@ -676,7 +808,7 @@ function write_rhdf(
 
     
 
-    print("File writed: \n   ", outfile)
+    println("File writed: \n   ", outfile)
     
 
 
@@ -704,7 +836,7 @@ function main(cfg)
     # --------------------------------------------
     # write to new rhdf file
     write_rhdf(
-        cfg.infile_rhdf, cfg.outfile_rhdf,                    
+        cfg,                    
         x1_faces, x2_faces, x3_faces,       
         x1_centers, x2_centers, x3_centers, 
         prim_rho, prim_u, prim_uvec, cons_fb,

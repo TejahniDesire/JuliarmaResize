@@ -428,7 +428,7 @@ function solve_phi(fB, dx1, dx2, dx3, BC;
 end
 
 
-function update_par(par_string,Nx1, Nx2,Nx3,mesh_Nx1=nothing,mesh_Nx2=nothing,mesh_Nx3=nothing)
+function update_par(par_string,Nx1, Nx2,Nx3;mesh_Nx1=nothing,mesh_Nx2=nothing,mesh_Nx3=nothing)
     """
         update KHARMA .par file with new Nx1, Nx2, Nx3 values for mesh and meshblock
     """
