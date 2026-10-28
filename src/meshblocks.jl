@@ -3,7 +3,11 @@ module Meshblocks
 import HDF5
 export Meshblocks
 
-
+# WARNING: The code below was written by Claude and should be internally verified.
+# I've found that its results are consistent for comparisons to KHARMA calculations,
+# that is, it produces the correct meshblock information when increasing the number
+# of meshblocks in comparison to a KHARMA simulation who started at the final meshblock count,
+# but I have not verified the code line by line. 
 """
     merge_meshblocks(x1_faces, x2_faces, x3_faces,
                      x1_centers, x2_centers, x3_centers,

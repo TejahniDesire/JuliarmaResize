@@ -6,6 +6,9 @@ import pyharm
 from pyharm.grid import Grid
 from pyharm.defs import Loci
 
+# WARNING: The code below was written by Claude and should be internally verified.
+# I've found that its results are consistent for comparisons to KHARMA calculations made on 
+# same resultion grids, but I have not gone through the code here line by line.
 """
 Add the metric quantities needed by the Julia resizer / divB cleaner to a
 KHARMA restart (.rhdf) file.
