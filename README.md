@@ -171,31 +171,6 @@ julia -t 10 scripts/resize_rst.jl input.rhdf output.rhdf \
 
 ---
 
-## Validation
-
-These checks have been done so far:
-
-- **Same-resolution round trip.** Resizing 256×128×128 → 256×128×128 reproduces the input to roundoff, which tests the full pipeline including the metric, the primitive→conserved conversion and the meshblock split.
-- **Meshblock metadata.** For a 2×2×1 layout, the output's block metadata matches a restart written by KHARMA itself.
-- **Divergence.** Linear interpolation leaves max|∇·B| of roughly 10², and nearest neighbor roughly 10³, for a 192×96×96 → 256×128×128 torus. Cleaning brings it back down to solver tolerance.
-- **Sanity checks.** After padding, the output has positive density everywhere and no NaNs in the conserved variables.
-
-Built-in self-tests for the meshblock code:
-
-```julia
-include("src/meshblocks.jl")
-Meshblocks.test_merge_meshblocks()
-Meshblocks.test_split_meshblocks()
-```
-
-**After resizing, check the restart in KHARMA.** Run a few steps and look at:
-
-- the starting dt;
-- max ∇·B, which should stay near machine precision;
-- the number of inversion failures or floor hits.
-
----
-
 ## Limitations
 
 - **Uniform meshes only.** No AMR/SMR (`Multilevel` must be 0), and the domain is kept the same; only the resolution and block layout change.
@@ -205,9 +180,7 @@ Meshblocks.test_split_meshblocks()
   - meshblock sizes must divide the mesh evenly;
   - with transmitting x2 boundaries, the meshblock must span the whole x3 direction;
   - Nx3 must be even.
-- **Block ordering.** Blocks are numbered in Z-order. This matches KHARMA for the layouts tested (2×2×1); for other layouts, check it against a restart that KHARMA wrote with the same block size.
-- **Interpolation smooths features.** The divergence cleaning changes B only as much as needed to remove the divergence, but sharp features are smoothed by the interpolation itself, especially when downscaling.
-- **Metric parameters must match the run.** The coordinate parameters are read from the `.phdf`, so the `.phdf` and the restart must come from the same run. The script checks that their mesh sizes match.
+- **Metric parameters must match the run.** The coordinate parameters are read from the `.phdf`, so the `.phdf` and the restart must come from the same run. The script checks that their mesh sizes match. To be safe, they should also be from the same timestep.
 
 ---
 
