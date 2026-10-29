@@ -60,6 +60,7 @@ The standard libraries `LinearAlgebra`, `SparseArrays` and `DelimitedFiles` are 
 ```julia
 julia> ]
 pkg> activate .
+pkg> instantiate
 pkg> add HDF5 Interpolations IterativeSolvers LinearMaps ArgParse
 ```
 
