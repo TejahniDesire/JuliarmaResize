@@ -36,7 +36,63 @@ struct Config
 
 end
 
-function get_rhdf_params(rhdf_h5_path)
+function GhostBuster(
+    NGhost,BC,
+    Nx1, Nx2, Nx3,
+    x1_faces,x2_faces,x3_faces,
+    x1_centers,x2_centers,x3_centers,
+    prim_rho,prim_u,prim_uvec,cons_fb,
+    
+)   
+
+
+    dx1 = kF.hF.get_dx(x1_faces)
+    dx2 = kF.hF.get_dx(x2_faces)
+    dx3 = kF.hF.get_dx(x3_faces)
+    # Nx1, Nx2, Nx3 = size(prim_rho)
+    x1_faces   = collect(range(x1_faces[1]   - dx1*NGhost, x1_faces[end]   + dx1*NGhost; length = length(x1_faces)   + 2NGhost))
+    x2_faces   = collect(range(x2_faces[1]   - dx2*NGhost, x2_faces[end]   + dx2*NGhost; length = length(x2_faces)   + 2NGhost))
+    x3_faces   = collect(range(x3_faces[1]   - dx3*NGhost, x3_faces[end]   + dx3*NGhost; length = length(x3_faces)   + 2NGhost))
+    x1_centers = collect(range(x1_centers[1] - dx1*NGhost, x1_centers[end] + dx1*NGhost; length = length(x1_centers) + 2NGhost))
+    x2_centers = collect(range(x2_centers[1] - dx2*NGhost, x2_centers[end] + dx2*NGhost; length = length(x2_centers) + 2NGhost))
+    x3_centers = collect(range(x3_centers[1] - dx3*NGhost, x3_centers[end] + dx3*NGhost; length = length(x3_centers) + 2NGhost))
+
+
+    prim_rho  = kF.hF.pad_array(prim_rho;Nx1_bc=BC[1],Nx2_bc=BC[2],Nx3_bc=BC[3],NGhost=NGhost) 
+    prim_u    = kF.hF.pad_array(prim_u;Nx1_bc=BC[1],Nx2_bc=BC[2],Nx3_bc=BC[3],NGhost=NGhost)  
+    prim_uvec1 = kF.hF.pad_array(prim_uvec[:,:,:,1];Nx1_bc=BC[1],Nx2_bc=BC[2],Nx3_bc=BC[3],NGhost=NGhost)        
+    prim_uvec2 = kF.hF.pad_array(prim_uvec[:,:,:,2];Nx1_bc=BC[1],Nx2_bc=BC[2],Nx3_bc=BC[3],NGhost=NGhost,transmit_sign=-1)        
+    prim_uvec3 = kF.hF.pad_array(prim_uvec[:,:,:,3];Nx1_bc=BC[1],Nx2_bc=BC[2],Nx3_bc=BC[3],NGhost=NGhost,transmit_sign=-1)        
+    prim_uvec = cat(prim_uvec1,prim_uvec2,prim_uvec3, dims=4)    
+
+    cons_fb1 = cons_fb[1:Nx1 + 1, 1:Nx2, 1:Nx3, 1]
+    cons_fb2 = cons_fb[1:Nx1, 1:Nx2 + 1, 1:Nx3, 2]
+    cons_fb3 = cons_fb[1:Nx1, 1:Nx2, 1:Nx3 + 1, 3]
+    cons_fb1, cons_fb2, cons_fb3 = kF.hF.pad_face_array(
+        cons_fb1, cons_fb2, cons_fb3;
+        Nx1_bc=BC[1],Nx2_bc=BC[2],Nx3_bc=BC[3],
+        NGhost=NGhost,
+    )
+    Nx1_face_padded = Nx1+2*NGhost
+    Nx2_face_padded = Nx2+2*NGhost
+    Nx3_face_padded = Nx3+2*NGhost
+
+    
+    cons_fb = zeros(Float64,Nx1_face_padded+1,Nx2_face_padded+1,Nx3_face_padded+1,3)
+    cons_fb[1:Nx1_face_padded + 1, 1:Nx2_face_padded, 1:Nx3_face_padded, 1] .= cons_fb1 
+    cons_fb[1:Nx1_face_padded, 1:Nx2_face_padded + 1, 1:Nx3_face_padded, 2] .= cons_fb2 
+    cons_fb[1:Nx1_face_padded, 1:Nx2_face_padded, 1:Nx3_face_padded + 1, 3] .= cons_fb3
+
+    return (
+        x1_faces,x2_faces,x3_faces,
+        x1_centers,x2_centers,x3_centers,
+        prim_rho,prim_u,prim_uvec,cons_fb,
+    )
+
+
+end
+
+function get_rhdf_params(rhdf_h5_path,BC)
     println( "Reading KHARMA dump:" )
     println( " ",rhdf_h5_path)
 
@@ -44,7 +100,7 @@ function get_rhdf_params(rhdf_h5_path)
 
     numMeshBlocks = HDF5.attrs(rhdf_file["Info"])["NumMeshBlocks"]
 
-    Nx1_old, Nx2_old, Nx3_old =HDF5.attrs(rhdf_file["Info"])["RootGridSize"]
+    Nx1_old, Nx2_old, Nx3_old = HDF5.attrs(rhdf_file["Info"])["RootGridSize"]
     
     NGhost = HDF5.attrs(rhdf_file["Info"])["NGhost"]
     Nx1_GI = Nx1_old + 2 * NGhost
@@ -62,6 +118,26 @@ function get_rhdf_params(rhdf_h5_path)
         x2_old_centers = HDF5.read(rhdf_file["VolumeLocations"]["y"])[:,1]
         x3_old_centers = HDF5.read(rhdf_file["VolumeLocations"]["z"])[:,1]
 
+        prim_rho = HDF5.read(rhdf_file["prims.rho"])[:,:,:,1]    # cell centered
+        prim_u = HDF5.read(rhdf_file["prims.u"])[:,:,:,1]        # cell centered
+        prim_uvec = HDF5.read(rhdf_file["prims.uvec"])[:,:,:,:,1] # cell centered
+        cons_fb = HDF5.read(rhdf_file["cons.fB"])[:,:,:,:,1]      # face centered
+
+        if HDF5.attrs(rhdf_file["Info"])["IncludesGhost"] == 0
+            println("Ghosts Cells Missing! Finding...")
+            ghostsIncluded = GhostBuster(
+                NGhost,BC,
+                Nx1_old, Nx2_old, Nx3_old,
+                x1_old_faces,x2_old_faces,x3_old_faces,
+                x1_old_centers,x2_old_centers,x3_old_centers,
+                prim_rho,prim_u,prim_uvec,cons_fb,
+                
+            )
+            x1_old_faces,x2_old_faces,x3_old_faces,
+            x1_old_centers,x2_old_centers,x3_old_centers,
+            prim_rho,prim_u,prim_uvec,cons_fb, = ghostsIncluded
+        end
+
         x1_range = (x1_old_faces[1 + NGhost], x1_old_faces[end - NGhost])
         x2_range = (x2_old_faces[1 + NGhost], x2_old_faces[end - NGhost])
         x3_range = (x3_old_faces[1 + NGhost], x3_old_faces[end - NGhost])
@@ -69,10 +145,7 @@ function get_rhdf_params(rhdf_h5_path)
 
 
         
-        prim_rho = HDF5.read(rhdf_file["prims.rho"])[:,:,:,1]    # cell centered
-        prim_u = HDF5.read(rhdf_file["prims.u"])[:,:,:,1]        # cell centered
-        prim_uvec = HDF5.read(rhdf_file["prims.uvec"])[:,:,:,:,1] # cell centered
-        cons_fb = HDF5.read(rhdf_file["cons.fB"])[:,:,:,:,1]      # face centered
+        
     else
         println("Meshblock size > 1, merging...")
         (;x1_faces,x2_faces,x3_faces,
@@ -86,6 +159,26 @@ function get_rhdf_params(rhdf_h5_path)
         x1_old_centers = x1_centers[:,1]
         x2_old_centers = x2_centers[:,1]
         x3_old_centers = x3_centers[:,1]
+        
+        prim_rho = prim_rho[:,:,:,1]    # cell centered
+        prim_u = prim_u[:,:,:,1]        # cell centered
+        prim_uvec = prim_uvec[:,:,:,:,1] # cell centered
+        cons_fb = cons_fb[:,:,:,:,1]     # face centered
+
+        if HDF5.attrs(rhdf_file["Info"])["IncludesGhost"] == 0
+            println("Ghosts Cells Missing! Finding...")
+            ghostsIncluded = GhostBuster(
+                NGhost,BC,
+                Nx1_old, Nx2_old, Nx3_old,
+                x1_old_faces,x2_old_faces,x3_old_faces,
+                x1_old_centers,x2_old_centers,x3_old_centers,
+                prim_rho,prim_u,prim_uvec,cons_fb,
+                
+            )
+            x1_old_faces,x2_old_faces,x3_old_faces,
+            x1_old_centers,x2_old_centers,x3_old_centers,
+            prim_rho,prim_u,prim_uvec,cons_fb, = ghostsIncluded
+        end
 
         x1_range = (x1_old_faces[1 + NGhost], x1_old_faces[end - NGhost])
         x2_range = (x2_old_faces[1 + NGhost], x2_old_faces[end - NGhost])
@@ -95,10 +188,7 @@ function get_rhdf_params(rhdf_h5_path)
 
 
         
-        prim_rho = prim_rho[:,:,:,1]    # cell centered
-        prim_u = prim_u[:,:,:,1]        # cell centered
-        prim_uvec = prim_uvec[:,:,:,:,1] # cell centered
-        cons_fb = cons_fb[:,:,:,:,1]     # face centered
+
     end
 
     close(rhdf_file)
@@ -112,7 +202,7 @@ function get_rhdf_params(rhdf_h5_path)
     )
 end
 
-function resize_grid(rhdf_h5_path,Nx1,Nx2,Nx3;method="linear")
+function resize_grid(rhdf_h5_path,Nx1,Nx2,Nx3,BC;method="linear")
     """
         Take in a rhdf KHARMA file and upscale resolution of 
         primatives vars density, energy, velocity vector, and 
@@ -167,7 +257,8 @@ function resize_grid(rhdf_h5_path,Nx1,Nx2,Nx3;method="linear")
     x1_old_centers,x2_old_centers,x3_old_centers,
     x1_range,x2_range,x3_range,
     Nx1_GI,Nx2_GI,Nx3_GI,NGhost,
-    prim_rho,prim_u,prim_uvec,cons_fb = get_rhdf_params(rhdf_h5_path)
+    prim_rho,prim_u,prim_uvec,cons_fb = get_rhdf_params(rhdf_h5_path, BC)
+
 
     # --------------------------------------------
     # --------------------------------------------
@@ -518,9 +609,10 @@ function write_rhdf(
         Nx1_bc=BC[1],Nx2_bc=BC[2],Nx3_bc=BC[3],
         NGhost=NGhost,
     )
+    
 
-    @show(minimum(prim_rho) > 0)
-    @show(!any(isnan, cons_u))
+    # @show(minimum(prim_rho) > 0)
+    # @show(!any(isnan, cons_u))
     # println("Padding occured...")
     # jlo = NGhost + 1
     # jhi = size(cons_fb2, 2) - NGhost
@@ -802,6 +894,7 @@ function main(cfg)
         cfg.nx1,
         cfg.nx2,
         cfg.nx3,
+        cfg.BC,
         method=cfg.resize_method
     )
     x1_faces, x2_faces, x3_faces,

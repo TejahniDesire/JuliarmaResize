@@ -21,9 +21,9 @@ path_to_JULIARMA = "/home/june/Desktop/Code/Repos/kharmaResize/"
 # ---------------------------------------------------------------------------------
 # params --------------------------------------------------------------------------
 # file paths
-input_rhdf_file = "/home/june/Desktop/Code/Repos/kharmaResize/products/torus.out1.00023_256x128x128.rhdf"
-input_phdf_file = "/home/june/Desktop/Code/Repos/kharmaResize/products/torus.out0.00023_256x128x128.phdf"
-output_rhdf_file = "/home/june/Desktop/Code/Repos/kharmaResize/outputs/256x128x128_meshblocks.rhdf"
+input_rhdf_file = "/home/june/Desktop/Code/Repos/kharmaResize/products/GhostBuster/torus.out1.00049.rhdf"
+input_phdf_file = "/home/june/Desktop/Code/Repos/kharmaResize/products/GhostBuster/torus.out0.00024.phdf"
+output_rhdf_file = "/home/june/Desktop/Code/Repos/kharmaResize/products/256x128x128/192x96x96_r30_resized-accretion_start.rhdf"
 # new resolution
 Nx1 = 256
 Nx2 = 128
@@ -77,7 +77,6 @@ command = command + args
 
 # --------
 print("Running Julia Resizing Script...")
-
 subprocess.run(command, shell=True, check=True)
 
 print("removing created metric file...")
