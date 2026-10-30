@@ -21,9 +21,9 @@ path_to_JULIARMA = "/home/june/Desktop/Code/Repos/kharmaResize/"
 # ---------------------------------------------------------------------------------
 # params --------------------------------------------------------------------------
 # file paths
-input_rhdf_file = "/home/june/Desktop/Code/Repos/kharmaResize/products/GhostBuster/torus.out1.00049.rhdf"
-input_phdf_file = "/home/june/Desktop/Code/Repos/kharmaResize/products/GhostBuster/torus.out0.00024.phdf"
-output_rhdf_file = "/home/june/Desktop/Code/Repos/kharmaResize/products/256x128x128/192x96x96_r30_resized-accretion_start.rhdf"
+input_rhdf_file = "/home/june/Desktop/Code/Repos/kharmaResize/products/Pablo/torus.out1.00050.rhdf"
+input_phdf_file = "/home/june/Desktop/Code/Repos/kharmaResize/products/Pablo/torus.out0.00500.phdf"
+output_rhdf_file = "/home/june/Desktop/Code/Repos/kharmaResize/products/Pablo/256x128x128_midSize.rhdf"
 # new resolution
 Nx1 = 256
 Nx2 = 128

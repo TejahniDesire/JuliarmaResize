@@ -177,11 +177,17 @@ Convenience wrapper: read everything straight from an open HDF5 file.
 """
 function merge_meshblocks(rhdf_file)
     r(name) = HDF5.read(rhdf_file[name])
+    if HDF5.attrs(rhdf_file["Info"])["IncludesGhost"] == 0
+        NGhost = 0
+    else
+        NGhost = HDF5.attrs(rhdf_file["Info"])["NGhost"]
+    end
+
     return merge_meshblocks(
         r("Locations/x"), r("Locations/y"), r("Locations/z"),
         r("VolumeLocations/x"), r("VolumeLocations/y"), r("VolumeLocations/z"),
         r("prims.rho"), r("prims.u"), r("prims.uvec"), r("cons.fB"),
-        r("Blocks/loc.lx123"), HDF5.attrs(rhdf_file["Info"])["NGhost"],
+        r("Blocks/loc.lx123"), NGhost,
     )
 end
 

@@ -565,6 +565,11 @@ function write_rhdf(
     BC = physical_bc(og_rhdf)
 
     NGhost = HDF5.attrs(og_rhdf["Info"])["NGhost"]
+    if HDF5.attrs(og_rhdf["Info"])["IncludesGhost"] == 0
+        NGhost = 0
+    end
+
+
     Nx1_old, Nx2_old, Nx3_old = HDF5.attrs(og_rhdf["Info"])["RootGridSize"]
 
     dx1 = kF.hF.get_dx(x1_faces)
