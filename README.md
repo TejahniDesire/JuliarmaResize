@@ -176,7 +176,6 @@ julia -t 10 scripts/resize_rst.jl input.rhdf output.rhdf \
 
 - **Uniform meshes only.** No AMR/SMR (`Multilevel` must be 0), and the domain is kept the same; only the resolution and block layout change.
 - **3D only.** 2D runs (`nx3 = 1`) are not supported.
-- **Supported KHARMA boundaries:** `outflow`, `periodic` and `transmitting`. Any other boundary type stops the run with an error.
 - **Meshblock constraints:**
   - meshblock sizes must divide the mesh evenly;
   - with transmitting x2 boundaries, the meshblock must span the whole x3 direction;
